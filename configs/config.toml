@@ -1,0 +1,38 @@
+[mounts.mount-a]
+path = "/tmp/mount-test"
+# Optional. The command to use to get the list of files and directories in
+# the mount's root. If not defined, .directory.read-command will be used.
+# You can provide a Go template string as the command. Check the list below
+# of supported template variables exposed by Fusee.
+readCommand = "echo 'Downloads Documents'"
+# Optional. What should be used to separate the names returned by readCommand.
+# If not defined, .directory.read-command will be used
+nameSeparator = " "
+mode = 0o555
+cache = true
+# The number of seconds the list of files in the root directory should be cached before
+# being rendered as stale.
+cacheSeconds = 30
+
+  [mounts.mount-a.directory]
+  # The command to use to generate the contents of a file.
+  # You can provide a Go template string as the command. Check the list below
+  # of supported template variables exposed by Fusee.
+  readCommand = "test -d $HOME/{{ .RelativePath }} && ls -1 $HOME/{{ .RelativePath }}"
+  nameSeparator = "\n"
+  mode = 0o555
+  cache = true
+  cacheSeconds = 30
+
+  [mounts.mount-a.file]
+  # The command to use to generate the list of directory entries. This command
+  # should pass when ran against a directory in the mount and should fail if
+  # ran against regular files. This is how Fusee tells if a direntry is a file
+  # or a directory.
+  #
+  # You can provide a Go template string as the command. Check the list below
+  # of supported template variables exposed by Fusee.
+  readCommand = "echo woot"
+  mode = 0o555
+  cache = true
+  cacheSeconds = 30
