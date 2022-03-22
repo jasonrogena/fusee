@@ -18,9 +18,7 @@ type root struct {
 	config          config.Mount
 	name            string
 	readDirCounter  int
-	atime           time.Time
-	ctime           time.Time
-	mtime           time.Time
+	attr            *fuse.Attr
 	dirEntries      []fuse.DirEntry
 	dirEntryPointer int
 }
@@ -44,33 +42,24 @@ func (r *root) Mount(debug bool) error {
 }
 
 func (r *root) OnAdd(ctx context.Context) {
-	err := loadChildren(ctx, r)
 	curTime := time.Now()
-	r.mtime = curTime
-	r.ctime = curTime
-	r.atime = curTime
+	r.attr = &fuse.Attr{}
+	r.attr.SetTimes(&curTime, &curTime, &curTime)
+	err := loadChildren(ctx, r)
 	if err != nil {
 		log.Error(err.Error())
 	}
 }
 
-func (r *root) setMtime(newTime time.Time) {
-	r.mtime = newTime
+func (r *root) getAttr() *fuse.Attr {
+	return r.attr
 }
 
 func (r *root) isContentStale() bool {
 	return isContentStale(r)
 }
 
-func (r *root) getMtime() time.Time {
-	return r.mtime
-}
-
-func (r *root) getCtime() time.Time {
-	return r.ctime
-}
-
-func (r *root) getCacheSeconds() float64 {
+func (r *root) getCacheSeconds() uint64 {
 	return r.config.CacheSeconds
 }
 
@@ -122,11 +111,15 @@ func (r *root) getCommandContext() command.Context {
 }
 
 func (r *root) Getattr(ctx context.Context, f fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
-	out.Mode = r.config.Mode
-	out.Atime = uint64(r.atime.Unix())
-	out.Mtime = uint64(r.mtime.Unix())
-	out.Ctime = uint64(r.ctime.Unix())
+	r.getattr(out)
 	return 0
+}
+
+func (r *root) getattr(out *fuse.AttrOut) {
+	out.Mode = r.config.Mode
+	out.Mtime = r.attr.Mtime
+	out.Ctime = r.attr.Ctime
+	out.Atime = r.attr.Atime
 }
 
 func (r *root) Release(ctx context.Context, f fs.FileHandle) syscall.Errno {
@@ -141,7 +134,7 @@ func (r *root) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
 	if loadErr != nil {
 		log.Error(loadErr.Error())
 	}
-
+	r.attr.Atime = uint64(time.Now().Unix())
 	for childName, chidInode := range r.Children() {
 		r.dirEntries = append(r.dirEntries, fuse.DirEntry{
 			Name: childName,

@@ -17,9 +17,7 @@ type file struct {
 	fs.Inode
 	config         config.File
 	commandContext command.Context
-	atime          time.Time
-	ctime          time.Time
-	mtime          time.Time
+	attr           *fuse.Attr
 	content        []byte
 }
 
@@ -38,7 +36,7 @@ func (f *file) Read(ctx context.Context, dest []byte, off int64) (fuse.ReadResul
 		end = int64(len(f.content))
 	}
 
-	f.atime = time.Now()
+	f.attr.Atime = uint64(time.Now().Unix())
 	return fuse.ReadResultData(f.content[off:end]), 0
 }
 
@@ -52,7 +50,7 @@ func (f *file) Open(ctx context.Context, openFlags uint32) (fh fs.FileHandle, fu
 			log.Error(outputErr.Error())
 		}
 		f.content = output
-		f.mtime = time.Now()
+		f.attr.Mtime = uint64(time.Now().Unix())
 	}
 
 	return f, fuse.FOPEN_DIRECT_IO, 0
@@ -60,19 +58,24 @@ func (f *file) Open(ctx context.Context, openFlags uint32) (fh fs.FileHandle, fu
 
 func (f *file) Getattr(ctx context.Context, out *fuse.AttrOut) syscall.Errno {
 	log.Debug("Getaddr called for file")
-	out.Mode = f.config.Mode
-	out.Atime = uint64(f.atime.Unix())
-	out.Mtime = uint64(f.mtime.Unix())
-	out.Ctime = uint64(f.ctime.Unix())
+	f.getattr(out)
 	return 0
+}
+
+func (f *file) getattr(out *fuse.AttrOut) {
+	out.Mode = f.config.Mode
+	out.Mtime = f.attr.Mtime
+	out.Ctime = f.attr.Ctime
+	out.Atime = f.attr.Atime
 }
 
 func (f *file) OnAdd(ctx context.Context) {
 	log.Debug("OnAdd called on file")
 	curTime := time.Now()
-	f.mtime = curTime
-	f.ctime = curTime
-	f.atime = curTime
+	f.attr = &fuse.Attr{}
+	f.attr.Atime = uint64(curTime.Unix())
+	f.attr.Ctime = uint64(curTime.Unix())
+	f.attr.Mtime = uint64(curTime.Unix())
 }
 
 func (f *file) Release(ctx context.Context) syscall.Errno {
@@ -85,15 +88,11 @@ func (f *file) Release(ctx context.Context) syscall.Errno {
 	return 0
 }
 
-func (f *file) getMtime() time.Time {
-	return f.mtime
+func (f *file) getAttr() *fuse.Attr {
+	return f.attr
 }
 
-func (f *file) getCtime() time.Time {
-	return f.ctime
-}
-
-func (f *file) getCacheSeconds() float64 {
+func (f *file) getCacheSeconds() uint64 {
 	return f.config.CacheSeconds
 }
 

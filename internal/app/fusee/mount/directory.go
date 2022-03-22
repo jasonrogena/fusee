@@ -18,9 +18,7 @@ type directory struct {
 	dirConfig       config.Directory
 	fileConfig      config.File
 	commandContext  command.Context
-	atime           time.Time
-	ctime           time.Time
-	mtime           time.Time
+	attr            *fuse.Attr
 	dirEntries      []fuse.DirEntry
 	dirEntryPointer int
 }
@@ -67,11 +65,15 @@ func (d *directory) getCommandContext() command.Context {
 
 func (d *directory) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
 	log.Debug("Getattr called for directory")
-	out.Mode = d.dirConfig.Mode
-	out.Atime = uint64(d.atime.Unix())
-	out.Mtime = uint64(d.mtime.Unix())
-	out.Ctime = uint64(d.ctime.Unix())
+	d.getattr(out)
 	return 0
+}
+
+func (d *directory) getattr(out *fuse.AttrOut) {
+	out.Mode = d.dirConfig.Mode
+	out.Mtime = d.attr.Mtime
+	out.Ctime = d.attr.Ctime
+	out.Atime = d.attr.Atime
 }
 
 func (d *directory) HasNext() bool {
@@ -110,7 +112,7 @@ func (d *directory) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
 	if loadErr != nil {
 		log.Error(loadErr.Error())
 	}
-
+	d.attr.Atime = uint64(time.Now().Unix())
 	for childName, chidInode := range d.Children() {
 		d.dirEntries = append(d.dirEntries, fuse.DirEntry{
 			Name: childName,
@@ -119,6 +121,10 @@ func (d *directory) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
 		})
 	}
 	return d, 0
+}
+
+func (d *directory) getAttr() *fuse.Attr {
+	return d.attr
 }
 
 func (d *directory) Open(ctx context.Context, flags uint32) (fh fs.FileHandle, fuseFlags uint32, errno syscall.Errno) {
@@ -130,15 +136,7 @@ func (d *directory) Open(ctx context.Context, flags uint32) (fh fs.FileHandle, f
 	return d, fuse.FOPEN_DIRECT_IO, 0
 }
 
-func (d *directory) getMtime() time.Time {
-	return d.mtime
-}
-
-func (d *directory) getCtime() time.Time {
-	return d.ctime
-}
-
-func (d *directory) getCacheSeconds() float64 {
+func (d *directory) getCacheSeconds() uint64 {
 	return d.dirConfig.CacheSeconds
 }
 
@@ -146,18 +144,23 @@ func (d *directory) shouldCache() bool {
 	return d.dirConfig.Cache
 }
 
-func (d *directory) setMtime(newTime time.Time) {
-	d.mtime = newTime
-}
-
 func (d *directory) isContentStale() bool {
 	return isContentStale(d)
 }
 
-var _ = (fs.InodeEmbedder)((*directory)(nil))
+func (d *directory) OnAdd(ctx context.Context) {
+	log.Debug("OnAdd called on directory")
+	curTime := time.Now()
+	d.attr = &fuse.Attr{}
+	d.attr.Atime = uint64(curTime.Unix())
+	d.attr.Ctime = uint64(curTime.Unix())
+	d.attr.Mtime = uint64(curTime.Unix())
+}
 
+var _ = (fs.InodeEmbedder)((*directory)(nil))
 var _ = (fs.NodeGetattrer)((*directory)(nil)) // Contains Getattr
 var _ = (fs.DirStream)((*directory)(nil))     // Contains HasNext, Next, and Close
 var _ = (fs.NodeLookuper)((*directory)(nil))  // Contains Lookup
 var _ = (fs.NodeReaddirer)((*directory)(nil)) // Contains Readdir
 var _ = (fs.NodeOpener)((*directory)(nil))    // Contains Open
+var _ = (fs.NodeOnAdder)((*directory)(nil))   // Contains OnAdd

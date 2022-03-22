@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hanwen/go-fuse/v2/fs"
+	"github.com/hanwen/go-fuse/v2/fuse"
 	"github.com/jasonrogena/fusee/internal/app/fusee/config"
 	"github.com/jasonrogena/fusee/internal/pkg/command"
 	fuseefs "github.com/jasonrogena/fusee/internal/pkg/fs"
@@ -21,7 +22,7 @@ type parent interface {
 	getDirectoryConfig() config.Directory
 	getFileConfig() config.File
 	isContentStale() bool
-	setMtime(newMtime time.Time)
+	getAttr() *fuse.Attr
 }
 
 func loadChildren(ctx context.Context, r parent) error {
@@ -35,7 +36,7 @@ func loadChildren(ctx context.Context, r parent) error {
 
 	log.Info("Running command to get dirents for ",
 		r.getCommandContext().MountRootDirPath+string(os.PathSeparator)+r.getCommandContext().RelativePath)
-	r.setMtime(time.Now())
+	r.getAttr().Mtime = uint64(time.Now().Unix())
 	readCommand, readCommandErr := r.getReadCommand()
 	if readCommandErr != nil {
 		return readCommandErr
@@ -107,17 +108,16 @@ func addFileChild(ctx context.Context, r parent, commandContext command.Context)
 }
 
 type cache interface {
-	getMtime() time.Time
-	getCtime() time.Time
-	getCacheSeconds() float64
+	getAttr() *fuse.Attr
+	getCacheSeconds() uint64
 	shouldCache() bool
 }
 
 func isContentStale(f cache) bool {
-	if f.shouldCache() && f.getMtime() != f.getCtime() {
-		timeDiff := time.Now().Sub(f.getMtime())
-		log.Debug("Time difference between last mtime and now is ", timeDiff.Seconds())
-		return timeDiff.Seconds() > f.getCacheSeconds()
+	if f.shouldCache() && f.getAttr().Mtime != f.getAttr().Ctime {
+		timeDiff := uint64(time.Now().Unix()) - f.getAttr().Mtime
+		log.Debug("Time difference between last mtime and now is ", timeDiff)
+		return timeDiff > f.getCacheSeconds()
 	}
 
 	return true

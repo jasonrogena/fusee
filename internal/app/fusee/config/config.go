@@ -12,7 +12,7 @@ type Mount struct {
 	NameSeparator string
 	Mode          uint32
 	Cache         bool
-	CacheSeconds  float64
+	CacheSeconds  uint64
 	Directory     Directory
 	File          File
 }
@@ -22,14 +22,14 @@ type Directory struct {
 	NameSeparator string
 	Mode          uint32
 	Cache         bool
-	CacheSeconds  float64
+	CacheSeconds  uint64
 }
 
 type File struct {
 	ReadCommand  string
 	Mode         uint32
 	Cache        bool
-	CacheSeconds float64
+	CacheSeconds uint64
 }
 
 func NewConfig(path string) (Config, error) {
