@@ -4,13 +4,25 @@ Fusee mounts a readonly [FUSE filesystem](https://www.kernel.org/doc/html/latest
 
 You can use Fuse to build a FUSE filesystem with as many levels of directories and files as your operating system allows. Apart from the filesystem's root directory, directories are loaded lazily (i.e. the contents of the directory are built only when the operating system calls readdir() against the directory).
 
+### Building
+
+To build Fusee, run:
+
+```sh
+make build
+```
+
 ### Usage
 
 ```
 fusee path/to/config.toml
 ```
 
-### Scenario 1
+### Usage Scenarios
+
+The following scenarios show example usages for Fusee.
+
+#### 1. Ansible Vault Password Files
 
 The `ansible-playbook` command accepts the `--vault-password-file` flag which you use to specify the path to a plaintext file containing the password (symetric key) Ansible should use to decrpt variable files. There are some situations where you would not want to have a plaintext file with a password hanging around in your filesystem. Use Fusee to provide the output of a command extracting the password from a secure place as a file.
 
