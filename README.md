@@ -32,7 +32,7 @@ This is how you woud use Fusee with Ansible fault files.
 
 ```sh
 $ ls $HOME/encrypted-ansible-passwords/
-project-1-password.asc  project-2-password.asc  project-3-password.asc
+project-1-password.asc  project-2-password.asc  project-3-password.asc sub-dir-with-more-passwords/
 ```
 
 2. Create a Fusee configuration file to load the encrypted password files as plaintext files in a FUSE mount:
@@ -43,17 +43,30 @@ project-1-password.asc  project-2-password.asc  project-3-password.asc
 path = "/tmp/ansible-password-files"
 readCommand = "ls -1 $HOME/encrypted-ansible-passwords/" # The command to use to generate the list of files in the mount point's root directory
 nameSeparator = "\n" # How to separate the names of the files gotten from the readCommand above
+mode = 0o555
+cache = true # Cache the list of files in the mount's root directory
+cacheSeconds = 30 # The number of seconds to cache the mount's root directory contents
 
   [mounts.ansible-vault-passwords.file]
   # The command to use to decrypt an encrypted password file to expose as a plaintext file. The
   # command will be ran when any process tries to read /tmp/ansible-password-files/<password file>
   # You can provide a Go template string as the command. Check the list below of supported template
   # variables exposed by Fusee.
-  readCommand = "gpg --decrypt {{ .RelativePath }} 2> /dev/null"
+  readCommand = "gpg --decrypt $HOME/encrypted-ansible-passwords/{{ .RelativePath }} 2> /dev/null"
   mode = 0o555
   # Set to false so that the plaintext passwords aren't cached in memory
   # and gpg is always called when users try to access the file
   cache = false
+
+  [mounts.mount-a.directory]
+  # Tests whether direntries within $HOME/encrypted-ansible-passwords are directories
+  # and, if so, provides the command (`ls -1`) to generate a list of files under these
+  # directories
+  readCommand = "test -d $HOME/encrypted-ansible-passwords/{{ .RelativePath }} && ls -1 $HOME/encrypted-ansible-passwords/{{ .RelativePath }}"
+  nameSeparator = "\n"
+  mode = 0o555
+  cache = true
+  cacheSeconds = 30
 ```
 
 3. Run Fusee:
