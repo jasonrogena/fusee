@@ -4,21 +4,28 @@ path = "/tmp/mount-test"
 # the mount's root. If not defined, .directory.read-command will be used.
 # You can provide a Go template string as the command. Check the list below
 # of supported template variables exposed by Fusee.
-readCommand = "echo 'Downloads Documents'"
+readCommand = "ls -1 \"$HOME\""
 # Optional. What should be used to separate the names returned by readCommand.
 # If not defined, .directory.read-command will be used
-nameSeparator = " "
+nameSeparator = "\n"
 mode = 0o555
 cache = true
 # The number of seconds the list of files in the root directory should be cached before
 # being rendered as stale.
-cacheSeconds = 30
+cacheSeconds = 300
+# The number of threads to use to run commands in parallel. If set to 0 then fusee creates
+# threads equal to the number of CPUs
+threadCount = 0
 
   [mounts.mount-a.directory]
   # The command to use to generate the contents of a file.
   # You can provide a Go template string as the command. Check the list below
-  # of supported template variables exposed by Fusee.
-  readCommand = "test -d $HOME/{{ .RelativePath }} && ls -1 $HOME/{{ .RelativePath }}"
+  # of supported template variables exposed by Fusee:
+  #   MountName: The name of the Fusee mount. 
+  #   MountRootDirPath: The absolute path for the mount's root directory.
+  #   RelativePath: The path, relative to the mount's root, for the file or directory being accessed.
+  #   Name: The name of the file or directory being accessed.
+  readCommand = "test -d \"$HOME/{{ .RelativePath }}\" && ls -1 \"$HOME/{{ .RelativePath }}\""
   nameSeparator = "\n"
   mode = 0o555
   cache = true
@@ -31,8 +38,12 @@ cacheSeconds = 30
   # or a directory.
   #
   # You can provide a Go template string as the command. Check the list below
-  # of supported template variables exposed by Fusee.
-  readCommand = "echo woot"
+  # of supported template variables exposed by Fusee:
+  #   MountName: The name of the Fusee mount. 
+  #   MountRootDirPath: The absolute path for the mount's root directory.
+  #   RelativePath: The path, relative to the mount's root, for the file or directory being accessed.
+  #   Name: The name of the file or directory being accessed.
+  readCommand = "stat \"$HOME/{{ .RelativePath }}\""
   mode = 0o555
   cache = true
   cacheSeconds = 30

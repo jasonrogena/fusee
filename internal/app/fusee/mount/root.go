@@ -3,6 +3,9 @@ package mount
 import (
 	"context"
 	"errors"
+	"fmt"
+	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -15,12 +18,13 @@ import (
 
 type root struct {
 	fs.Inode
-	config          config.Mount
-	name            string
-	readDirCounter  int
-	attr            *fuse.Attr
-	dirEntries      []fuse.DirEntry
-	dirEntryPointer int
+	config            config.Mount
+	name              string
+	readDirCounter    int
+	attr              *fuse.Attr
+	dirEntries        []fuse.DirEntry
+	dirEntryPointer   int
+	commandRunnerPool *command.Pool
 }
 
 func NewRoot(name string, conf config.Mount) *root {
@@ -34,9 +38,9 @@ func (r *root) Mount(debug bool) error {
 	opts := &fs.Options{}
 	// opts.Debug = debug
 
-	log.Debug("Beginning the mounting process for '%s'", r.name)
+	log.Debug(fmt.Sprintf("Beginning the mounting process for '%s'", r.name))
 	server, serverErr := fs.Mount(r.config.Path, r, opts)
-	log.Debug("fs.Mount called for '%s'. About to start waiting for mount", r.name)
+	log.Debug(fmt.Sprintf("fs.Mount called for '%s'. About to start waiting for mount", r.name))
 	server.Wait()
 	return serverErr
 }
@@ -45,7 +49,15 @@ func (r *root) OnAdd(ctx context.Context) {
 	curTime := time.Now()
 	r.attr = &fuse.Attr{}
 	r.attr.SetTimes(&curTime, &curTime, &curTime)
-	err := loadChildren(ctx, r)
+	noThreads := r.config.ThreadCount
+	if noThreads == 0 {
+		noThreads = uint(runtime.NumCPU())
+	}
+	r.commandRunnerPool = command.NewPool(int(noThreads))
+	r.commandRunnerPool.Start()
+	var wg sync.WaitGroup
+	err := loadChildren(ctx, r, &wg)
+	wg.Wait()
 	if err != nil {
 		log.Error(err.Error())
 	}
@@ -101,13 +113,12 @@ func (r *root) getNameSeparator() (string, error) {
 	return "", errors.New("Name separator not provided for mount root")
 }
 
-func (r *root) getCommandContext() command.Context {
-	return command.Context{
-		MountName:        r.name,
-		MountRootDirPath: r.config.Path,
-		RelativePath:     "",
-		Name:             "",
-	}
+func (r *root) getCommandState() *command.State {
+	return command.NewState(r.name, r.config.Path, "", "")
+}
+
+func (r *root) getCommandRunnerPool() *command.Pool {
+	return r.commandRunnerPool
 }
 
 func (r *root) Getattr(ctx context.Context, f fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
@@ -123,14 +134,16 @@ func (r *root) getattr(out *fuse.AttrOut) {
 }
 
 func (r *root) Release(ctx context.Context, f fs.FileHandle) syscall.Errno {
-	// TODO: release persistent SSH connection if any
+	r.commandRunnerPool.Stop()
 	// TODO: umount
 	return 0
 }
 
 func (r *root) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
 	log.Debug("Readdir called for root")
-	loadErr := loadChildren(ctx, r)
+	var wg sync.WaitGroup
+	loadErr := loadChildren(ctx, r, &wg)
+	wg.Wait()
 	if loadErr != nil {
 		log.Error(loadErr.Error())
 	}
@@ -145,9 +158,17 @@ func (r *root) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
 	return r, 0
 }
 
+func (r *root) getCachedTestRunOutput() []byte {
+	return []byte{}
+}
+
+func (r *root) clearCachedTestRunOutput() {}
+
 func (r *root) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
 	log.Debug("Lookup called for root")
-	loadErr := loadChildren(ctx, r)
+	var wg sync.WaitGroup
+	loadErr := loadChildren(ctx, r, &wg)
+	wg.Wait()
 	if loadErr != nil {
 		log.Error(loadErr.Error())
 	}

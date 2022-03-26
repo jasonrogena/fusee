@@ -3,6 +3,7 @@ package mount
 import (
 	"context"
 	"errors"
+	"sync"
 	"syscall"
 	"time"
 
@@ -15,19 +16,28 @@ import (
 
 type directory struct {
 	fs.Inode
-	dirConfig       config.Directory
-	fileConfig      config.File
-	commandContext  command.Context
-	attr            *fuse.Attr
-	dirEntries      []fuse.DirEntry
-	dirEntryPointer int
+	dirConfig         config.Directory
+	fileConfig        config.File
+	commandState      *command.State
+	attr              *fuse.Attr
+	dirEntries        []fuse.DirEntry
+	dirEntryPointer   int
+	commandRunnerPool *command.Pool
+	// Only populate cachedTestRunOutput when the directory is created using NewDirectory.
+	// Variable is used to store the output created when this directory's parent runs the
+	// directory command against this directory's name to test whether it is a file or directory.
+	// We cache the output from the test so that incase ReadDir is called against this directory
+	// before its atime expires we just build its dirents using the cached test run output.
+	cachedTestRunOutput []byte
 }
 
-func NewDirectory(dirConfig config.Directory, fileConfig config.File, commandContext command.Context) *directory {
+func NewDirectory(dirConfig config.Directory, fileConfig config.File, cachedTestRunOutput []byte, commandState *command.State, commandRunnerPool *command.Pool) *directory {
 	return &directory{
-		commandContext: commandContext,
-		dirConfig:      dirConfig,
-		fileConfig:     fileConfig,
+		commandState:        commandState,
+		dirConfig:           dirConfig,
+		fileConfig:          fileConfig,
+		commandRunnerPool:   commandRunnerPool,
+		cachedTestRunOutput: cachedTestRunOutput,
 	}
 }
 
@@ -59,8 +69,20 @@ func (d *directory) getNameSeparator() (string, error) {
 	return "", errors.New("Name separator not provided for directory")
 }
 
-func (d *directory) getCommandContext() command.Context {
-	return d.commandContext
+func (d *directory) getCommandState() *command.State {
+	return d.commandState
+}
+
+func (d *directory) getCommandRunnerPool() *command.Pool {
+	return d.commandRunnerPool
+}
+
+func (d *directory) getCachedTestRunOutput() []byte {
+	return d.cachedTestRunOutput
+}
+
+func (d *directory) clearCachedTestRunOutput() {
+	d.cachedTestRunOutput = []byte{}
 }
 
 func (d *directory) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
@@ -94,7 +116,9 @@ func (d *directory) Close() {
 
 func (d *directory) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
 	log.Debug("Lookup called for directory")
-	loadErr := loadChildren(ctx, d)
+	var wg sync.WaitGroup
+	loadErr := loadChildren(ctx, d, &wg)
+	wg.Wait()
 	if loadErr != nil {
 		log.Error(loadErr.Error())
 	}
@@ -108,7 +132,9 @@ func (d *directory) Lookup(ctx context.Context, name string, out *fuse.EntryOut)
 
 func (d *directory) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
 	log.Debug("Readdir called for directory")
-	loadErr := loadChildren(ctx, d)
+	var wg sync.WaitGroup
+	loadErr := loadChildren(ctx, d, &wg)
+	wg.Wait()
 	if loadErr != nil {
 		log.Error(loadErr.Error())
 	}
@@ -129,7 +155,9 @@ func (d *directory) getAttr() *fuse.Attr {
 
 func (d *directory) Open(ctx context.Context, flags uint32) (fh fs.FileHandle, fuseFlags uint32, errno syscall.Errno) {
 	log.Debug("Open called for directory")
-	loadErr := loadChildren(ctx, d)
+	var wg sync.WaitGroup
+	loadErr := loadChildren(ctx, d, &wg)
+	wg.Wait()
 	if loadErr != nil {
 		log.Error(loadErr.Error())
 	}

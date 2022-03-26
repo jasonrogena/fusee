@@ -4,35 +4,76 @@ import (
 	"bytes"
 	"os/exec"
 	"text/template"
+
+	log "github.com/sirupsen/logrus"
 )
 
-type Context struct {
+type Command struct {
+	state       *State
+	template    string
+	postRunHook func([]byte, error)
+}
+
+type State struct {
 	MountName        string
 	MountRootDirPath string
 	RelativePath     string
 	Name             string
 }
 
-func constructCommand(commandTemplate string, context Context) (string, error) {
-	t, tErr := template.New("command").Parse(commandTemplate)
+func NewState(mountName string, mountRootDirPath string, relativePath string, fileName string) *State {
+	return &State{
+		MountName:        mountName,
+		MountRootDirPath: mountRootDirPath,
+		RelativePath:     relativePath,
+		Name:             fileName,
+	}
+}
+
+func CopyState(original *State) *State {
+	return &State{
+		MountName:        original.MountName,
+		MountRootDirPath: original.MountRootDirPath,
+		RelativePath:     original.RelativePath,
+		Name:             original.Name,
+	}
+}
+
+func NewCommand(template string, state *State, postRunHook func([]byte, error)) *Command {
+	return &Command{
+		state:       state,
+		template:    template,
+		postRunHook: postRunHook,
+	}
+}
+
+func (c *Command) constructCommand() (string, error) {
+	t, tErr := template.New("Command").Parse(c.template)
 	if tErr != nil {
 		return "", tErr
 	}
 
-	var commandBuf bytes.Buffer
-	execErr := t.Execute(&commandBuf, context)
+	var CommandBuf bytes.Buffer
+	execErr := t.Execute(&CommandBuf, *c.state)
 	if execErr != nil {
 		return "", execErr
 	}
 
-	return commandBuf.String(), nil
+	return CommandBuf.String(), nil
 }
 
-func Run(commandTemplate string, context Context) ([]byte, error) {
-	command, commandErr := constructCommand(commandTemplate, context)
-	if commandErr != nil {
-		return []byte{}, commandErr
+func (c *Command) Run() {
+	Command, CommandErr := c.constructCommand()
+	if CommandErr != nil {
+		if c.postRunHook != nil {
+			c.postRunHook([]byte{}, CommandErr)
+		}
+		return
 	}
 
-	return exec.Command("sh", "-c", command).Output()
+	output, outputErr := exec.Command("sh", "-c", Command).Output()
+	log.Debug("About to run postRunHook")
+	if c.postRunHook != nil {
+		c.postRunHook(output, outputErr)
+	}
 }

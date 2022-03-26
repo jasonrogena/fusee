@@ -4,6 +4,17 @@ Fusee mounts a readonly [FUSE filesystem](https://www.kernel.org/doc/html/latest
 
 You can use Fuse to build a FUSE filesystem with as many levels of directories and files as your operating system allows. Apart from the filesystem's root directory, directories are loaded lazily (i.e. the contents of the directory are built only when the operating system calls readdir() against the directory).
 
+### Prerequisites
+#### macOS
+
+[macFUSE](https://osxfuse.github.io/) should installed for Fusee to work. Install macFUSE using [Homebrew](https://brew.sh/) by running:
+
+```sh
+brew install --cask macfuse
+```
+
+You might be required to enable system extensions in your machine's Recovery Mode security settings. If so, a pop-up with how to do this will appear when you first run Fusee.
+
 ### Building
 
 To build Fusee, run:
@@ -15,8 +26,11 @@ make build
 ### Usage
 
 ```
+mkdir /path/to/mountpoint
 fusee path/to/config.toml
 ```
+
+As an example, [configs/config.toml](./configs/config.toml) will build a FUSE mount based on what is in your home directory. The contents of any file in the FUSE mount is the `stat` output for the corresponding file in your home directory.
 
 ### Usage Scenarios
 
@@ -46,6 +60,7 @@ nameSeparator = "\n" # How to separate the names of the files gotten from the re
 mode = 0o555
 cache = true # Cache the list of files in the mount's root directory
 cacheSeconds = 30 # The number of seconds to cache the mount's root directory contents
+threadCount = 0 # Let Fusee spawn as many threads as there are CPUs in your host
 
   [mounts.ansible-vault-passwords.file]
   # The command to use to decrypt an encrypted password file to expose as a plaintext file. The
@@ -90,21 +105,28 @@ path = "/tmp/mount-test"
 # the mount's root. If not defined, .directory.read-command will be used.
 # You can provide a Go template string as the command. Check the list below
 # of supported template variables exposed by Fusee.
-readCommand = "echo 'Downloads Documents'"
+readCommand = "ls -1 \"$HOME\""
 # Optional. What should be used to separate the names returned by readCommand.
 # If not defined, .directory.read-command will be used
-nameSeparator = " "
+nameSeparator = "\n"
 mode = 0o555
 cache = true
 # The number of seconds the list of files in the root directory should be cached before
 # being rendered as stale.
-cacheSeconds = 30
+cacheSeconds = 300
+# The number of threads to use to run commands in parallel. If set to 0 then fusee creates
+# threads equal to the number of CPUs
+threadCount = 0
 
   [mounts.mount-a.directory]
   # The command to use to generate the contents of a file.
   # You can provide a Go template string as the command. Check the list below
-  # of supported template variables exposed by Fusee.
-  readCommand = "test -d $HOME/{{ .RelativePath }} && ls -1 $HOME/{{ .RelativePath }}"
+  # of supported template variables exposed by Fusee:
+  #   MountName: The name of the Fusee mount. 
+  #   MountRootDirPath: The absolute path for the mount's root directory.
+  #   RelativePath: The path, relative to the mount's root, for the file or directory being accessed.
+  #   Name: The name of the file or directory being accessed.
+  readCommand = "test -d \"$HOME/{{ .RelativePath }}\" && ls -1 \"$HOME/{{ .RelativePath }}\""
   nameSeparator = "\n"
   mode = 0o555
   cache = true
@@ -117,8 +139,12 @@ cacheSeconds = 30
   # or a directory.
   #
   # You can provide a Go template string as the command. Check the list below
-  # of supported template variables exposed by Fusee.
-  readCommand = "echo woot"
+  # of supported template variables exposed by Fusee:
+  #   MountName: The name of the Fusee mount. 
+  #   MountRootDirPath: The absolute path for the mount's root directory.
+  #   RelativePath: The path, relative to the mount's root, for the file or directory being accessed.
+  #   Name: The name of the file or directory being accessed.
+  readCommand = "stat \"$HOME/{{ .RelativePath }}\""
   mode = 0o555
   cache = true
   cacheSeconds = 30

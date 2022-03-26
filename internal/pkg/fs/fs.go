@@ -14,16 +14,16 @@ func generateInodeNumber(path string) uint64 {
 	return h.Sum64()
 }
 
-func GetDirectoryStableAttr(commandContext command.Context) fs.StableAttr {
+func GetDirectoryStableAttr(commandState *command.State) fs.StableAttr {
 	return fs.StableAttr{
-		Ino:  generateInodeNumber(commandContext.MountRootDirPath + commandContext.RelativePath),
+		Ino:  generateInodeNumber(commandState.MountRootDirPath + commandState.RelativePath),
 		Mode: syscall.S_IFDIR,
 	}
 }
 
-func GetFileStableAttr(commandContext command.Context) fs.StableAttr {
+func GetFileStableAttr(commandState *command.State) fs.StableAttr {
 	return fs.StableAttr{
-		Ino:  generateInodeNumber(commandContext.MountRootDirPath + commandContext.RelativePath),
+		Ino:  generateInodeNumber(commandState.MountRootDirPath + commandState.RelativePath),
 		Mode: syscall.S_IFREG,
 	}
 }

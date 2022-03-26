@@ -11,6 +11,7 @@ type Mount struct {
 	ReadCommand   string
 	NameSeparator string
 	Mode          uint32
+	ThreadCount   uint
 	Cache         bool
 	CacheSeconds  uint64
 	Directory     Directory

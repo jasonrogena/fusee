@@ -3,6 +3,7 @@ package mount
 import (
 	"context"
 	"os"
+	"sync"
 	"syscall"
 	"time"
 
@@ -15,16 +16,18 @@ import (
 
 type file struct {
 	fs.Inode
-	config         config.File
-	commandContext command.Context
-	attr           *fuse.Attr
-	content        []byte
+	config            config.File
+	commandState      *command.State
+	attr              *fuse.Attr
+	content           []byte
+	commandRunnerPool *command.Pool
 }
 
-func NewFile(config config.File, commandContext command.Context) *file {
+func NewFile(config config.File, commandState *command.State, commandRunnerPool *command.Pool) *file {
 	return &file{
-		config:         config,
-		commandContext: commandContext,
+		config:            config,
+		commandState:      commandState,
+		commandRunnerPool: commandRunnerPool,
 	}
 }
 
@@ -43,14 +46,19 @@ func (f *file) Read(ctx context.Context, dest []byte, off int64) (fuse.ReadResul
 func (f *file) Open(ctx context.Context, openFlags uint32) (fh fs.FileHandle, fuseFlags uint32, errno syscall.Errno) {
 	log.Debug("Open called for file")
 	if isContentStale(f) {
+		var wg sync.WaitGroup
+		wg.Add(1)
 		log.Info("Running command to get contents for ",
-			f.commandContext.MountRootDirPath+string(os.PathSeparator)+f.commandContext.RelativePath)
-		output, outputErr := command.Run(f.config.ReadCommand, f.commandContext)
-		if outputErr != nil {
-			log.Error(outputErr.Error())
-		}
-		f.content = output
-		f.attr.Mtime = uint64(time.Now().Unix())
+			f.commandState.MountRootDirPath+string(os.PathSeparator)+f.commandState.RelativePath)
+		f.commandRunnerPool.AddCommand(command.NewCommand(f.config.ReadCommand, f.commandState, func(output []byte, outputErr error) {
+			if outputErr != nil {
+				log.Error(outputErr.Error())
+			}
+			f.content = output
+			f.attr.Mtime = uint64(time.Now().Unix())
+			wg.Done()
+		}))
+		wg.Wait()
 	}
 
 	return f, fuse.FOPEN_DIRECT_IO, 0
