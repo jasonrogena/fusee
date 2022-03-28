@@ -23,7 +23,6 @@ type directory struct {
 	dirEntries        []fuse.DirEntry
 	dirEntryPointer   int
 	commandRunnerPool *command.Pool
-	// Only populate cachedTestRunOutput when the directory is created using NewDirectory.
 	// Variable is used to store the output created when this directory's parent runs the
 	// directory command against this directory's name to test whether it is a file or directory.
 	// We cache the output from the test so that incase ReadDir is called against this directory
@@ -81,8 +80,8 @@ func (d *directory) getCachedTestRunOutput() []byte {
 	return d.cachedTestRunOutput
 }
 
-func (d *directory) clearCachedTestRunOutput() {
-	d.cachedTestRunOutput = []byte{}
+func (d *directory) setCachedTestRunOutput(testRunOutput []byte) {
+	d.cachedTestRunOutput = testRunOutput
 }
 
 func (d *directory) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
@@ -114,20 +113,13 @@ func (d *directory) Close() {
 	d.dirEntryPointer = 0
 }
 
+func (d *directory) getChildren() map[string]*fs.Inode {
+	return d.Children()
+}
+
 func (d *directory) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
 	log.Debug("Lookup called for directory")
-	var wg sync.WaitGroup
-	loadErr := loadChildren(ctx, d, &wg)
-	wg.Wait()
-	if loadErr != nil {
-		log.Error(loadErr.Error())
-	}
-	child, childFound := d.Children()[name]
-	if childFound {
-		return child, 0
-	}
-
-	return nil, syscall.ENOENT
+	return lookupChild(ctx, d, name)
 }
 
 func (d *directory) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {

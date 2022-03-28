@@ -18,19 +18,21 @@ import (
 
 type root struct {
 	fs.Inode
-	config            config.Mount
-	name              string
-	readDirCounter    int
-	attr              *fuse.Attr
-	dirEntries        []fuse.DirEntry
-	dirEntryPointer   int
-	commandRunnerPool *command.Pool
+	config              config.Mount
+	name                string
+	readDirCounter      int
+	attr                *fuse.Attr
+	dirEntries          []fuse.DirEntry
+	dirEntryPointer     int
+	commandRunnerPool   *command.Pool
+	cachedTestRunOutput []byte
 }
 
 func NewRoot(name string, conf config.Mount) *root {
 	return &root{
-		config: conf,
-		name:   name,
+		config:              conf,
+		name:                name,
+		cachedTestRunOutput: []byte{},
 	}
 }
 
@@ -159,25 +161,20 @@ func (r *root) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
 }
 
 func (r *root) getCachedTestRunOutput() []byte {
-	return []byte{}
+	return r.cachedTestRunOutput
 }
 
-func (r *root) clearCachedTestRunOutput() {}
+func (r *root) setCachedTestRunOutput(testRunOutput []byte) {
+	r.cachedTestRunOutput = testRunOutput
+}
 
 func (r *root) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
 	log.Debug("Lookup called for root")
-	var wg sync.WaitGroup
-	loadErr := loadChildren(ctx, r, &wg)
-	wg.Wait()
-	if loadErr != nil {
-		log.Error(loadErr.Error())
-	}
-	child, childFound := r.Children()[name]
-	if childFound {
-		return child, 0
-	}
+	return lookupChild(ctx, r, name)
+}
 
-	return nil, syscall.ENOENT
+func (r *root) getChildren() map[string]*fs.Inode {
+	return r.Children()
 }
 
 func (r *root) HasNext() bool {

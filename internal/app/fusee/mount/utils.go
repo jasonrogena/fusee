@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/hanwen/go-fuse/v2/fs"
@@ -27,7 +28,8 @@ type parent interface {
 	getAttr() *fuse.Attr
 	getCommandRunnerPool() *command.Pool
 	getCachedTestRunOutput() []byte
-	clearCachedTestRunOutput()
+	setCachedTestRunOutput(testRunOutput []byte)
+	getChildren() map[string]*fs.Inode
 }
 
 func loadChildren(ctx context.Context, r parent, wg *sync.WaitGroup) error {
@@ -39,7 +41,7 @@ func loadChildren(ctx context.Context, r parent, wg *sync.WaitGroup) error {
 		if len(r.getCachedTestRunOutput()) > 0 {
 			log.Debug(fmt.Sprintf("Using the output for the command used to test whether '%s' is a directory to build its dirents", r.getCommandState().RelativePath))
 			loadCommandOutput(ctx, r, r.getCachedTestRunOutput())
-			r.clearCachedTestRunOutput()
+			r.setCachedTestRunOutput([]byte{})
 		}
 		return nil
 	}
@@ -63,6 +65,50 @@ func loadChildren(ctx context.Context, r parent, wg *sync.WaitGroup) error {
 	return nil
 }
 
+func lookupChild(ctx context.Context, r parent, name string) (*fs.Inode, syscall.Errno) {
+	if !r.isContentStale() {
+		child, childFound := r.getChildren()[name]
+		if childFound {
+			return child, 0
+		}
+	}
+
+	readCommand, readCommandErr := r.getReadCommand()
+	if readCommandErr != nil {
+		log.Error(fmt.Sprintf("Cannot lookup directory %s because of error: %v", r.getCommandState().RelativePath, readCommandErr))
+		return nil, syscall.ENOENT
+	}
+
+	log.Info(fmt.Sprintf("Running command to lookup '%s' in '%s'", name, r.getCommandState().RelativePath))
+	var wg sync.WaitGroup
+	wg.Add(1)
+	r.getCommandRunnerPool().AddCommand(command.NewCommand(readCommand, r.getCommandState(), func(commandOutput []byte, commandErr error) {
+		defer wg.Done()
+		r.setCachedTestRunOutput(commandOutput)
+		r.getAttr().Mtime = uint64(time.Now().Unix())
+		separator, separatorErr := r.getNameSeparator()
+		if separatorErr != nil {
+			log.Warn(fmt.Sprintf("Unable to lookup dir '%s' due to an error: %v", r.getCommandState().RelativePath, separatorErr))
+			return
+		}
+		names := strings.Split(string(commandOutput[:]), separator)
+		for _, curFileName := range names {
+			if curFileName == name {
+				addDirent(ctx, r, curFileName)
+				break
+			}
+		}
+	}))
+	wg.Wait()
+
+	child, childFound := r.getChildren()[name]
+	if childFound {
+		return child, 0
+	}
+
+	return nil, syscall.ENOENT
+}
+
 func loadCommandOutput(ctx context.Context, r parent, commandOutput []byte) {
 	separator, separatorErr := r.getNameSeparator()
 	if separatorErr != nil {
@@ -71,33 +117,37 @@ func loadCommandOutput(ctx context.Context, r parent, commandOutput []byte) {
 	}
 	names := strings.Split(string(commandOutput[:]), separator)
 	for _, curFileName := range names {
-		commandState := command.CopyState(r.getCommandState())
-		curFileName = strings.TrimSpace(curFileName)
-		if len(curFileName) == 0 {
-			log.Error("Could not add file with an empty name")
-			continue
-		}
-		log.Debug(fmt.Sprintf("Adding dirent '%s'", curFileName))
-		commandState.Name = curFileName
-		relativePath := r.getCommandState().RelativePath
-		if len(relativePath) > 0 {
-			relativePath = relativePath + string(os.PathSeparator)
-		}
-		commandState.RelativePath = relativePath + curFileName
-		dirConfig := r.getDirectoryConfig()
-		if len(dirConfig.ReadCommand) > 0 {
-			// Try test the dir command
-			command.NewCommand(dirConfig.ReadCommand, commandState, func(testOutput []byte, testOutputErr error) {
-				if testOutputErr == nil {
-					addDirectoryChild(ctx, r, commandState, testOutput, r.getCommandRunnerPool())
-				} else {
-					log.Debug(fmt.Sprintf("There was an error attemting to run directory command against '%s', adding it as a file instead %v", commandState.RelativePath, testOutputErr))
-					addFileChild(ctx, r, commandState, r.getCommandRunnerPool())
-				}
-			}).Run()
-		} else { // Just treat as if dirent is a file
-			addFileChild(ctx, r, commandState, r.getCommandRunnerPool())
-		}
+		addDirent(ctx, r, curFileName)
+	}
+}
+
+func addDirent(ctx context.Context, r parent, filename string) {
+	commandState := command.CopyState(r.getCommandState())
+	filename = strings.TrimSpace(filename)
+	if len(filename) == 0 {
+		log.Debug("Could not add file with an empty name")
+		return
+	}
+	log.Debug(fmt.Sprintf("Adding dirent '%s'", filename))
+	commandState.Name = filename
+	relativePath := r.getCommandState().RelativePath
+	if len(relativePath) > 0 {
+		relativePath = relativePath + string(os.PathSeparator)
+	}
+	commandState.RelativePath = relativePath + filename
+	dirConfig := r.getDirectoryConfig()
+	if len(dirConfig.ReadCommand) > 0 {
+		// Try test the dir command
+		command.NewCommand(dirConfig.ReadCommand, commandState, func(testOutput []byte, testOutputErr error) {
+			if testOutputErr == nil {
+				addDirectoryChild(ctx, r, commandState, testOutput, r.getCommandRunnerPool())
+			} else {
+				log.Debug(fmt.Sprintf("There was an error attemting to run directory command against '%s', adding it as a file instead %v", commandState.RelativePath, testOutputErr))
+				addFileChild(ctx, r, commandState, r.getCommandRunnerPool())
+			}
+		}).Run()
+	} else { // Just treat as if dirent is a file
+		addFileChild(ctx, r, commandState, r.getCommandRunnerPool())
 	}
 }
 
@@ -114,7 +164,7 @@ func addDirectoryChild(ctx context.Context, r parent, commandState *command.Stat
 		fuseefs.GetDirectoryStableAttr(commandState))
 	success := r.getInode().AddChild(commandState.Name, ch, true)
 	if success {
-		log.Debug("Successfully added directory '%s'", commandState.RelativePath)
+		log.Debug(fmt.Sprintf("Successfully added directory '%s'", commandState.RelativePath))
 	} else {
 		log.Warn("Could not add directory '%s'", commandState.RelativePath)
 	}
