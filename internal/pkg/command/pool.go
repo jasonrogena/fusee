@@ -34,6 +34,7 @@ func (p *Pool) Start() {
 	}
 	go func() {
 		lastStatTime := time.Now()
+		commandIndex := -1
 		for {
 			select {
 			case <-p.kill:
@@ -44,37 +45,19 @@ func (p *Pool) Start() {
 				break
 			default:
 				curCommand := <-p.commands
-				var bestRunner *runner
-				var bestRunnerCapacity int64
-				log.Debug("Checking which thread is best suited to run command")
-				for curRunnerIndex, curRunner := range p.runners {
-					if curRunnerIndex == 0 {
-						log.Debug("First thread considered the best")
-						bestRunner = curRunner
-						bestRunnerCapacity = curRunner.getCapacity()
-					} else {
-						curRunnerCapacity := curRunner.getCapacity()
-						log.Debug(fmt.Sprintf(
-							"Current worker thread %d(capacity: %d). Best worker thread %d (capacity: %d",
-							curRunner.id,
-							curRunnerCapacity,
-							bestRunner.id,
-							bestRunnerCapacity))
-						if curRunnerCapacity < bestRunnerCapacity {
-							bestRunner = curRunner
-							bestRunnerCapacity = curRunnerCapacity
-						}
-					}
-					if time.Now().Sub(lastStatTime).Minutes() > 5 {
+				commandIndex++
+				// try and see if the next round-robbed worker is available
+				designatedRunner := p.runners[commandIndex%len(p.runners)]
+				designatedRunner.addCommand(curCommand)
+
+				if time.Now().Sub(lastStatTime).Minutes() > 5 {
+					for curRunnerIndex, curRunner := range p.runners {
 						log.Info(fmt.Sprintf("Worker thread %d has executed %d commands so far", curRunner.id, curRunner.gettNoCommandsRun()))
 						if curRunnerIndex == (len(p.runners) - 1) {
 							lastStatTime = time.Now()
 						}
 					}
 				}
-
-				log.Debug(fmt.Sprintf("Sending command to worker thread with ID %d", bestRunner.getID()))
-				bestRunner.addCommand(curCommand)
 			}
 		}
 	}()
