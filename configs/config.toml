@@ -4,6 +4,11 @@ path = "/tmp/mount-test"
 # the mount's root. If not defined, .directory.read-command will be used.
 # You can provide a Go template string as the command. Check the list below
 # of supported template variables exposed by Fusee.
+# Check the list below of supported template variables exposed by Fusee:
+#   MountName: The name of the Fusee mount. 
+#   MountRootDirPath: The absolute path for the mount's root directory.
+#   RelativePath: Will be a blank string.
+#   Name: Will be a blank string.
 readCommand = "ls -1 \"$HOME\""
 # Optional. What should be used to separate the names returned by readCommand.
 # If not defined, .directory.read-command will be used
@@ -17,21 +22,21 @@ cacheSeconds = 300
 # threads equal to the number of CPUs
 threadCount = 0
 
-  [mounts.mount-a.directory]
+  [mounts.mount-a.file]
   # The command to use to generate the contents of a file.
   # You can provide a Go template string as the command. Check the list below
   # of supported template variables exposed by Fusee:
   #   MountName: The name of the Fusee mount. 
   #   MountRootDirPath: The absolute path for the mount's root directory.
-  #   RelativePath: The path, relative to the mount's root, for the file or directory being accessed.
-  #   Name: The name of the file or directory being accessed.
-  readCommand = "test -d \"$HOME/{{ .RelativePath }}\" && ls -1 \"$HOME/{{ .RelativePath }}\""
-  nameSeparator = "\n"
+  #   RelativePath: The path, relative to the mount's root, for the file being accessed.
+  #   Name: The name of the file being accessed.
+  readCommand = "stat \"$HOME/{{ .RelativePath }}\""
   mode = 0o555
   cache = true
   cacheSeconds = 30
 
-  [mounts.mount-a.file]
+  # Optional. If not provided, all directory entries in the mount's root will be treated like regular files
+  [mounts.mount-a.directory]
   # The command to use to generate the list of directory entries. This command
   # should pass when ran against a directory in the mount and should fail if
   # ran against regular files. This is how Fusee tells if a direntry is a file
@@ -41,9 +46,12 @@ threadCount = 0
   # of supported template variables exposed by Fusee:
   #   MountName: The name of the Fusee mount. 
   #   MountRootDirPath: The absolute path for the mount's root directory.
-  #   RelativePath: The path, relative to the mount's root, for the file or directory being accessed.
-  #   Name: The name of the file or directory being accessed.
-  readCommand = "stat \"$HOME/{{ .RelativePath }}\""
+  #   RelativePath: The path, relative to the mount's root, for the directory being accessed. If the
+  #     the directory is the mount's root, RelativePath will be a blank string.
+  #   Name: The name of the directory being accessed. If the directory is the mount's root, Name will
+  #     be a blank string.
+  readCommand = "test -d \"$HOME/{{ .RelativePath }}\" && ls -1 \"$HOME/{{ .RelativePath }}\""
+  nameSeparator = "\n"
   mode = 0o555
   cache = true
   cacheSeconds = 30

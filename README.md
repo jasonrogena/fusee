@@ -98,57 +98,7 @@ ansible-playbook --vault-password-file=/tmp/ansible-password-files/project-1-pas
 
 ### Config
 
-```toml
-[mounts.mount-a]
-path = "/tmp/mount-test"
-# Optional. The command to use to get the list of files and directories in
-# the mount's root. If not defined, .directory.read-command will be used.
-# You can provide a Go template string as the command. Check the list below
-# of supported template variables exposed by Fusee.
-readCommand = "ls -1 \"$HOME\""
-# Optional. What should be used to separate the names returned by readCommand.
-# If not defined, .directory.read-command will be used
-nameSeparator = "\n"
-mode = 0o555
-cache = true
-# The number of seconds the list of files in the root directory should be cached before
-# being rendered as stale.
-cacheSeconds = 300
-# The number of threads to use to run commands in parallel. If set to 0 then fusee creates
-# threads equal to the number of CPUs
-threadCount = 0
-
-  [mounts.mount-a.directory]
-  # The command to use to generate the contents of a file.
-  # You can provide a Go template string as the command. Check the list below
-  # of supported template variables exposed by Fusee:
-  #   MountName: The name of the Fusee mount. 
-  #   MountRootDirPath: The absolute path for the mount's root directory.
-  #   RelativePath: The path, relative to the mount's root, for the file or directory being accessed.
-  #   Name: The name of the file or directory being accessed.
-  readCommand = "test -d \"$HOME/{{ .RelativePath }}\" && ls -1 \"$HOME/{{ .RelativePath }}\""
-  nameSeparator = "\n"
-  mode = 0o555
-  cache = true
-  cacheSeconds = 30
-
-  [mounts.mount-a.file]
-  # The command to use to generate the list of directory entries. This command
-  # should pass when ran against a directory in the mount and should fail if
-  # ran against regular files. This is how Fusee tells if a direntry is a file
-  # or a directory.
-  #
-  # You can provide a Go template string as the command. Check the list below
-  # of supported template variables exposed by Fusee:
-  #   MountName: The name of the Fusee mount. 
-  #   MountRootDirPath: The absolute path for the mount's root directory.
-  #   RelativePath: The path, relative to the mount's root, for the file or directory being accessed.
-  #   Name: The name of the file or directory being accessed.
-  readCommand = "stat \"$HOME/{{ .RelativePath }}\""
-  mode = 0o555
-  cache = true
-  cacheSeconds = 30
-```
+Check [configs/config.toml](./configs/config.toml) for the configuration documentation.
 
 ### Command Template Variables
 
@@ -156,5 +106,5 @@ The following variables are usable in the go templates defined in the `readComma
 
 - `MountName`: The name of the Fusee mount. 
 - `MountRootDirPath`: The absolute path for the mount's root directory.
-- `RelativePath`: The path, relative to the mount's root, for the file or directory being accessed.
-- `Name`: The name of the file or directory being accessed.
+- `RelativePath`: The path, relative to the mount's root, for the file or directory being accessed. If directory is the mount's root, RelativePath will be a blank string.
+- `Name`: The name of the file or directory being accessed. If directory is the mount's root, Name will be a blank string.
